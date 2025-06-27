@@ -19,69 +19,49 @@ class Message(BaseModel):
 class ConversationRequest(BaseModel):
     messages: List[Message]
     shared_context: Optional[Dict[str, Any]] = {}
-    goal: Optional[str] = None
 
+router = APIRouter(prefix="/planner", tags=["Planning Agent"])
 
-router = APIRouter(prefix="/planner", tags=["Planner Agent"])
-
-
-# --- PLANNER AGENT CONSTITUTION V1 ---
+# --- SIMPLE PLANNER CONSTITUTION ---
 PLANNER_AGENT_CONSTITUTION_PROMPT = """
-You are "Agentive," an expert AI Planner. Your purpose is to have a natural, turn-by-turn conversation with a user to deeply understand their goal. Once you have gathered enough information, your final output will be a comprehensive, step-by-step plan written in simple, clear language.
+You are a straightforward "Planning Agent". Your only job is to take a user's request and break it down into a clear, actionable, step-by-step plan.
 
-**--- YOUR PROTOCOL ---**
+**--- MANDATORY OUTPUT FORMAT ---**
+Your entire response MUST be a single JSON object in the following format. Do not add any other text or explanation. Each step should be a JSON object with a "title" and a "description".
 
-1.  **GATHER CONTEXT:**
-    * Your primary goal is to gather key pieces of information (The "Universal Context").
-    * You MUST ask for only ONE piece of information per turn.
-    * Always acknowledge the user's previous answer before asking your next question.
-    * Before asking, ALWAYS check the `SHARED_CONTEXT` to see if the information already exists.
-    * **Key Information to Gather:** Occasion, Number of People, Date/Time, Budget (in local currency based on `user_location`), Location/Travel Radius, Cuisine/Preferences, and Desired Ambiance.
-
-2.  **CREATE THE PLAN:**
-    * Once you have enough context, your final response will be a single JSON object containing a natural language plan.
-    * The plan should be a logical sequence of actions to achieve the user's goal.
-    * Do NOT reference specific agent names like "food_service." Instead, describe the action itself (e.g., "Search for restaurants," "Check for table availability").
-
-**--- OUTPUT FORMATS ---**
-
-* **If you need more information, your output MUST be:**
-    `{{"response_type": "clarification", "text": "Your single, polite question?", "options": ["Option 1", "Option 2"]}}`
-
-* **When you have enough information, your FINAL output MUST be:**
-    `{{"response_type": "plan_generated", "plan": ["First step of the plan.", "Second step of the plan.", "Third step of the plan."]}}`
-
-**--- SHARED CONTEXT ---**
-{shared_context}
-
-**--- FULL CONVERSATION HISTORY ---**
-{full_conversation_history}
+`{{
+  "response_type": "plan",
+  "steps": [
+    {{
+      "title": "Step 1: Define Travel Details",
+      "description": "Clarify key details like destination, travel dates, number of people, and budget."
+    }},
+    {{
+      "title": "Step 2: Research Flights",
+      "description": "Find and compare flight options based on the travel details."
+    }},
+    {{
+      "title": "Step 3: Find Accommodation",
+      "description": "Look for hotels or other lodging that fits the user's budget and preferences."
+    }}
+  ]
+}}`
 """
 
-@router.post("/get_plan")
-async def get_plan(request: ConversationRequest):
-    print("\n--- [PLANNER] Planner Agent Activated ---")
-    model = genai.GenerativeModel(
-        'gemini-1.5-flash',
-        generation_config={"response_mime_type": "application/json"}
-    )
+@router.post("/generate_plan")
+async def generate_plan(request: ConversationRequest):
+    print("\n--- [PLANNING AGENT] Activated ---")
+    model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
     
-    full_history_string = "\n".join([f"{msg.sender.capitalize()}: {msg.text}" for msg in request.messages if msg.text])
+    user_request = request.messages[-1].text if request.messages else ""
 
-    prompt = PLANNER_AGENT_CONSTITUTION_PROMPT.format(
-        shared_context=json.dumps(request.shared_context),
-        full_conversation_history=full_history_string
-    )
-    
+    prompt = PLANNER_AGENT_CONSTITUTION_PROMPT + f"\n\n**User Request:** {user_request}"
+
     try:
         response = model.generate_content(prompt)
         parsed_json = json.loads(response.text)
-        print(f"--- [PLANNER] Parsed AI Response: {parsed_json} ---")
+        print(f"--- [PLANNER] Parsed AI Response: {json.dumps(parsed_json, indent=2)} ---")
         return parsed_json
     except Exception as e:
         print(f"--- [PLANNER] CRITICAL ERROR: {e} ---")
-        # Return a graceful error message
-        return {
-            "response_type": "answer",
-            "text": "I'm having a little trouble thinking. Could you try rephrasing?"
-        }
+        return {"response_type": "answer", "text": "I had trouble creating a plan. Please try again."}
