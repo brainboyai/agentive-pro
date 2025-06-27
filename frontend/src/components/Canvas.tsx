@@ -3,7 +3,13 @@ import { MapWidget } from './widgets/MapWidget';
 import { WeatherWidget } from './widgets/WeatherWidget';
 import { ListWidget } from './widgets/ListWidget';
 
-export const Canvas = ({ widgets }: { widgets: any[] }) => {
+// The key change: The Canvas now needs to receive and pass down the onSendMessage function
+type CanvasProps = {
+  widgets: any[];
+  onSendMessage: (message: string) => void;
+};
+
+export const Canvas = ({ widgets, onSendMessage }: CanvasProps) => {
   return (
     <div style={{ padding: '20px', display: 'grid', gap: '20px', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
       {widgets.map((widget, index) => {
@@ -13,7 +19,8 @@ export const Canvas = ({ widgets }: { widgets: any[] }) => {
           case 'weather':
             return <WeatherWidget key={index} data={widget} />;
           case 'list':
-            return <ListWidget key={index} data={widget} />;
+            // Here, we pass the function down to the ListWidget
+            return <ListWidget key={index} data={widget} onSendMessage={onSendMessage} />;
           default:
             return <div key={index}>Unknown widget type</div>;
         }

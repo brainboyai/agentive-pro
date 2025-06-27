@@ -5,23 +5,38 @@ from fastapi import APIRouter
 import google.generativeai as genai
 from ..reasoning_service.main import ConversationRequest
 
-# --- THE AUTONOMOUS SPECIALIST CONSTITUTION ---
+# --- FOOD AGENT CONSTITUTION V11 (Conversational & Resourceful) ---
 FOOD_AGENT_CONSTITUTION_PROMPT = """
-You are a highly specialized AI assistant for finding food options. You MUST follow a strict, state-driven protocol. Determine your state based on the conversation and follow the rules for that state ONLY.
+You are a friendly and helpful AI assistant for finding food options.
 
-**--- STATE 1: GATHERING_INFO ---**
-* **Condition:** You do not have enough information to perform a useful search. You are missing key details like location, cuisine type, or budget.
-* **Your ONLY Action:** Ask the user for the missing information. Your response MUST be a `clarification` JSON object with clickable `options`. Ask one question at a time.
+**Your Goal for this turn:** {goal}
+**Full Context:** {shared_context}
+**Conversation History:** {history}
 
-**--- STATE 2: READY_TO_SEARCH ---**
-* **Condition:** You have gathered enough information (e.g., cuisine AND location) to find specific restaurant options for the user.
-* **Your ONLY Action:** Autonomously use the `Google Search` tool to find real-world options that match the user's criteria. DO NOT ask the user for a restaurant name; find options for them.
-* **Output Format:** `{{"response_type": "tool_use", "tool_name": "Google Search", "tool_input": {{"query": "your detailed search query, e.g., 'best casual cheeseburger restaurants in Jubilee Hills'"}}}}`
+**--- YOUR PROTOCOL ---**
+1.  **Analyze Goal & Context:** Understand the specific task you've been given.
+2.  **Autonomous Tool Use:** Your first instinct should be to use the `Google Search` tool to find real, up-to-date information that matches the user's request in the goal.
+3.  **Analyze Results & Ask for Help:** After you get the search results back (they will appear in the history from the "System"), analyze them.
+    * **If the results are clear and sufficient:** Present them to the user in a `canvas` list widget.
+    * **If the results are ambiguous or too broad:** Do NOT show the poor results. Instead, ask the user a clarifying question to narrow down the options. For example: "My search for 'restaurants in Hyderabad' returned over 1000 results. To help me narrow it down, could you tell me a specific neighborhood or cuisine you're interested in?"
 
-**--- STATE 3: PRESENTING_RESULTS ---**
-* **Condition:** The last message was a "System" message containing "Tool Result".
-* **Your ONLY Action:** Analyze the search results and present the best options to the user so they can make a choice.
-* **Output Format:** `{{"response_type": "canvas", "widgets": [{{"widget_type": "list", "title": "Restaurant Options", "items": ["Restaurant A (from search)", "Restaurant B (from search)"]}}]}}`
+**--- CRITICAL OUTPUT FORMATTING ---**
+When your goal is to present information, you MUST format your response as a `canvas` widget. Your entire response MUST be a single JSON object that looks EXACTLY like this example. You must escape all quotes properly.
+
+{{
+  "response_type": "canvas",
+  "widgets": [
+    {{
+      "widget_type": "list",
+      "title": "Here are some options I found:",
+      "items": [
+        "Restaurant Name 1 - Details (e.g., Rating, Price)",
+        "Restaurant Name 2 - Details (e.g., Rating, Price)",
+        "Restaurant Name 3 - Details (e.g., Rating, Price)"
+      ]
+    }}
+  ],
+
 """
 
 router = APIRouter(prefix="/food", tags=["Specialist: Food Service"])
@@ -29,25 +44,34 @@ router = APIRouter(prefix="/food", tags=["Specialist: Food Service"])
 @router.post("/handle_conversation", name="Handle Food Conversation")
 async def handle_conversation(request: ConversationRequest):
     print("\n--- [FOOD_SERVICE] Specialist Agent Activated ---")
-    print(f"--- [FOOD_SERVICE] Received context: {request.shared_context} ---")
+    print(f"--- [FOOD_SERVICE] Received Goal: {request.goal} ---")
+    print(f"--- [FOOD_SERVICE] Received Context: {request.shared_context} ---")
     
     model = genai.GenerativeModel(
         'gemini-1.5-flash',
-        system_instruction=FOOD_AGENT_CONSTITUTION_PROMPT,
         generation_config={"response_mime_type": "application/json"}
     )
     
-    # The conversation handling logic is now stable and robust
-    history = [f"{msg.sender.capitalize()}: {msg.text}" for msg in request.messages if msg.text]
-    prompt = f"SHARED_CONTEXT: {json.dumps(request.shared_context)}\nHISTORY:\n{history}\n\nBased on your protocol and the full conversation, generate the next JSON response:"
-    
-    response = model.generate_content(prompt)
-    parsed_json_from_ai = json.loads(response.text)
-    print(f"--- [FOOD_SERVICE] AI Response: {parsed_json_from_ai} ---")
+    history_string = "\n".join([f"{msg.sender.capitalize()}: {msg.text}" for msg in request.messages if msg.text])
 
-    # The Response Correction Layer ensures the output is always valid for the orchestrator
-    status = "completed" if parsed_json_from_ai.get("status") == "completed" else "awaiting_user_input"
-    display_message = parsed_json_from_ai.get('display_message') or parsed_json_from_ai
+    prompt = FOOD_AGENT_CONSTITUTION_PROMPT.format(
+        goal=request.goal,
+        shared_context=json.dumps(request.shared_context),
+        history=history_string
+    )
+
+    response = model.generate_content(prompt)
+    
+    try:
+        parsed_json_from_ai = json.loads(response.text)
+        print(f"--- [FOOD_SERVICE] AI Response: {json.dumps(parsed_json_from_ai, indent=2)} ---")
+    except json.JSONDecodeError:
+        print(f"--- [FOOD_SERVICE] CRITICAL ERROR: Failed to decode AI's JSON response. ---")
+        print(f"--- [FOOD_SERVICE] Faulty Raw Response Text: {response.text} ---")
+        parsed_json_from_ai = {"response_type": "answer", "text": "I'm having trouble formatting my thoughts. Please try again."}
+
+    status = "completed" if parsed_json_from_ai.get("response_type") == "canvas" else "awaiting_user_input"
+    display_message = parsed_json_from_ai
 
     final_response_for_orchestrator = {
         "status": status,

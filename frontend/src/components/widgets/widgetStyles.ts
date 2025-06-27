@@ -20,4 +20,14 @@ export const widgetStyles: { [key: string]: React.CSSProperties } = {
     textAlign: 'center',
     color: '#555',
   },
+  listItemButton: {
+    backgroundColor: '#f0f2f5',
+    border: '1px solid #ddd',
+    borderRadius: '4px',
+    padding: '10px',
+    textAlign: 'left',
+    cursor: 'pointer',
+    fontSize: '14px',
+    width: '100%'
+  }
 };

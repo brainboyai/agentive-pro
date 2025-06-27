@@ -37,14 +37,19 @@ function App() {
       if (!response.ok) throw new Error('Network response was not ok');
 
       const data = await response.json();
-      const agentResponseData = data.agent_response;
+      let agentResponseData = data.agent_response;
       
       if (data.shared_context) {
         setSharedContext(data.shared_context);
       }
 
-      // --- FINAL FIX: Check if agentResponseData exists before processing ---
-      if (agentResponseData) {
+      // --- FIX: Handle potentially nested clarification responses ---
+      if (agentResponseData && agentResponseData.clarification) {
+          // If the actual response is nested, extract it.
+          agentResponseData = agentResponseData.clarification;
+      }
+      
+      if (agentResponseData && agentResponseData.response_type) {
         const agentMessage: Message = {
           sender: 'agent',
           text: agentResponseData.text,
@@ -54,11 +59,11 @@ function App() {
         };
         setMessages(prev => [...prev, agentMessage]);
       } else {
-        console.log("Received a response without a displayable message.");
+        console.log("Received a response without a displayable message.", agentResponseData);
       }
 
     } catch (error) {
-      console.error("Failed to fetch:", error); // This line is App.tsx:59
+      console.error("Failed to fetch:", error);
       const errorMessage: Message = { sender: 'agent', text: 'Sorry, I had trouble connecting to the server.' };
       setMessages(prev => [...prev, errorMessage]);
     }
@@ -90,7 +95,7 @@ function App() {
               </div>
             )}
             {msg.response_type === 'canvas' && msg.widgets && (
-              <Canvas widgets={msg.widgets} />
+              <Canvas widgets={msg.widgets} onSendMessage={handleSendMessage}/>
             )}
           </div>
         ))}
