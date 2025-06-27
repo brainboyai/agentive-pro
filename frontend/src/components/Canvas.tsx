@@ -3,13 +3,17 @@ import { MapWidget } from './widgets/MapWidget';
 import { WeatherWidget } from './widgets/WeatherWidget';
 import { ListWidget } from './widgets/ListWidget';
 
-// The key change: The Canvas now needs to receive and pass down the onSendMessage function
+// Define a more specific type for our widgets to satisfy ESLint
+interface WidgetData {
+  widget_type: 'map' | 'weather' | 'list' | string;
+  [key: string]: any; // Allow other properties
+}
+
 type CanvasProps = {
-  widgets: any[];
-  onSendMessage: (message: string) => void;
+  widgets: WidgetData[];
 };
 
-export const Canvas = ({ widgets, onSendMessage }: CanvasProps) => {
+export const Canvas = ({ widgets }: CanvasProps) => {
   return (
     <div style={{ padding: '20px', display: 'grid', gap: '20px', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
       {widgets.map((widget, index) => {
@@ -19,10 +23,11 @@ export const Canvas = ({ widgets, onSendMessage }: CanvasProps) => {
           case 'weather':
             return <WeatherWidget key={index} data={widget} />;
           case 'list':
-            // Here, we pass the function down to the ListWidget
-            return <ListWidget key={index} data={widget} onSendMessage={onSendMessage} />;
+            // --- THE FIX ---
+            // The entire 'widget' object from the array is the 'data' for the ListWidget.
+            return <ListWidget key={index} data={widget} />;
           default:
-            return <div key={index}>Unknown widget type</div>;
+            return <div key={index}>Unknown widget type: {widget.widget_type}</div>;
         }
       })}
     </div>

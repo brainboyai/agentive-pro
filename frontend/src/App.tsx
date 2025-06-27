@@ -1,65 +1,48 @@
 // frontend/src/App.tsx
 import { useState } from 'react';
 import './index.css';
-import { Canvas } from './components/Canvas';
+import { PlanWidget } from './components/widgets/PlanWidget'; // Import the new widget
 
 type Message = {
   sender: 'user' | 'agent';
-  text: string;
-  options?: string[];
-  response_type?: 'answer' | 'clarification' | 'canvas';
-  widgets?: any[];
+  text?: string; // Text is now optional
+  response_type?: 'answer' | 'plan';
+  steps?: { title: string; description: string }[];
 };
 
 function App() {
   const [inputValue, setInputValue] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
-  const [sharedContext, setSharedContext] = useState({});
 
   const handleSendMessage = async (text: string) => {
     if (!text.trim()) return;
 
     const userMessage: Message = { sender: 'user', text };
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+    setMessages(prev => [...prev, userMessage]);
     setInputValue('');
 
     try {
       const response = await fetch('http://127.0.0.1:8000/api/v1/conversation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          messages: newMessages,
-          shared_context: sharedContext
-        }),
+        body: JSON.stringify({ messages: [userMessage] }), // Send only the latest message
       });
 
       if (!response.ok) throw new Error('Network response was not ok');
 
       const data = await response.json();
-      let agentResponseData = data.agent_response;
+      const agentResponseData = data.agent_response;
       
-      if (data.shared_context) {
-        setSharedContext(data.shared_context);
-      }
-
-      // --- FIX: Handle potentially nested clarification responses ---
-      if (agentResponseData && agentResponseData.clarification) {
-          // If the actual response is nested, extract it.
-          agentResponseData = agentResponseData.clarification;
-      }
-      
-      if (agentResponseData && agentResponseData.response_type) {
+      if (agentResponseData) {
         const agentMessage: Message = {
           sender: 'agent',
           text: agentResponseData.text,
-          options: agentResponseData.options,
           response_type: agentResponseData.response_type,
-          widgets: agentResponseData.widgets,
+          steps: agentResponseData.steps,
         };
         setMessages(prev => [...prev, agentMessage]);
       } else {
-        console.log("Received a response without a displayable message.", agentResponseData);
+        console.log("Received a response without a displayable message.");
       }
 
     } catch (error) {
@@ -76,26 +59,20 @@ function App() {
 
   return (
     <div style={styles.container}>
-      <div style={styles.header}><h1>Agentive Pro</h1></div>
+      <div style={styles.header}><h1>Agentive Pro (Simple Planner)</h1></div>
       <div style={styles.chatHistory}>
         {messages.map((msg, index) => (
-          <div key={index}>
-            {msg.response_type !== 'canvas' && (
+          <div key={index} style={{ width: '100%' }}>
+            {/* Render a standard text message */}
+            {msg.text && (
               <div style={msg.sender === 'user' ? styles.userMessage : styles.agentMessage}>
                 {msg.text}
-                {msg.response_type === 'clarification' && msg.options && (
-                  <div style={styles.optionsContainer}>
-                    {msg.options.map((option, i) => (
-                      <button key={i} style={styles.optionButton} onClick={() => handleSendMessage(option)}>
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
             )}
-            {msg.response_type === 'canvas' && msg.widgets && (
-              <Canvas widgets={msg.widgets} onSendMessage={handleSendMessage}/>
+            
+            {/* Render the plan widget */}
+            {msg.response_type === 'plan' && msg.steps && (
+              <PlanWidget steps={msg.steps} onStepClick={(stepTitle) => handleSendMessage(stepTitle)} />
             )}
           </div>
         ))}
@@ -103,7 +80,7 @@ function App() {
       <form onSubmit={handleFormSubmit} style={styles.chatInputForm}>
         <input
           type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)}
-          placeholder="Ask a question or state a goal..." style={styles.chatInput}
+          placeholder="Enter a goal..." style={styles.chatInput}
         />
         <button type="submit" style={styles.sendButton}>Send</button>
       </form>
@@ -114,14 +91,12 @@ function App() {
 const styles: { [key: string]: React.CSSProperties } = {
     container: { display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', backgroundColor: '#f0f2f5' },
     header: { backgroundColor: '#fff', padding: '10px 20px', borderBottom: '1px solid #ddd', textAlign: 'center' },
-    chatHistory: { flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column' },
-    userMessage: { alignSelf: 'flex-end', backgroundColor: '#0084ff', color: 'white', padding: '10px 15px', borderRadius: '20px', marginBottom: '10px', maxWidth: '70%', marginLeft: 'auto' },
-    agentMessage: { alignSelf: 'flex-start', backgroundColor: '#e4e6eb', color: '#050505', padding: '10px 15px', borderRadius: '20px', marginBottom: '10px', maxWidth: '70%', marginRight: 'auto' },
+    chatHistory: { flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' },
+    userMessage: { alignSelf: 'flex-end', backgroundColor: '#0084ff', color: 'white', padding: '10px 15px', borderRadius: '20px', marginBottom: '10px', maxWidth: '70%'},
+    agentMessage: { alignSelf: 'flex-start', backgroundColor: '#e4e6eb', color: '#050505', padding: '10px 15px', borderRadius: '20px', marginBottom: '10px', maxWidth: '70%' },
     chatInputForm: { display: 'flex', padding: '20px', borderTop: '1px solid #ddd', backgroundColor: '#fff' },
     chatInput: { flex: 1, padding: '10px 15px', borderRadius: '20px', border: '1px solid #ccc', fontSize: '16px' },
     sendButton: { marginLeft: '10px', padding: '10px 20px', border: 'none', borderRadius: '20px', backgroundColor: '#0084ff', color: 'white', fontSize: '16px', cursor: 'pointer' },
-    optionsContainer: { display: 'flex', flexWrap: 'wrap', marginTop: '10px' },
-    optionButton: { backgroundColor: '#fff', border: '1px solid #0084ff', color: '#0084ff', padding: '8px 12px', borderRadius: '20px', margin: '5px 5px 0 0', cursor: 'pointer', fontSize: '14px' }
-  };
+};
 
 export default App;
